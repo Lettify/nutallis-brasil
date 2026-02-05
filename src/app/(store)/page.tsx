@@ -24,8 +24,8 @@ export default async function StorePage() {
   type ProductRow = Product & {
     categories?: { name: string } | { name: string }[] | null;
   };
-            ].map((item) => (
-              <Card key={item.title} className="bg-white">
+
+  const mappedProducts: Product[] = ((products ?? []) as ProductRow[]).map(
     (product) => ({
       ...product,
       category_name: Array.isArray(product.categories)
