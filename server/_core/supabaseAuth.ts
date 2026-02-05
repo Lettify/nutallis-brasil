@@ -1,4 +1,4 @@
-import { jwtVerify } from "jose";
+import { createRemoteJWKSet, decodeProtectedHeader, jwtVerify } from "jose";
 import type { Request } from "express";
 import type { User } from "../../drizzle/schema";
 import * as db from "../db";
@@ -18,14 +18,59 @@ export async function authenticateRequest(req: Request): Promise<User | null> {
   const token = getBearerToken(req);
   if (!token) return null;
 
-  if (!ENV.supabaseJwtSecret) {
-    console.warn("[Auth] SUPABASE_JWT_SECRET is not configured");
-    return null;
-  }
-
   try {
-    const secretKey = new TextEncoder().encode(ENV.supabaseJwtSecret);
-    const { payload } = await jwtVerify(token, secretKey);
+    const header = decodeProtectedHeader(token);
+    const alg = typeof header.alg === "string" ? header.alg : "";
+
+    if (!ENV.supabaseUrl) {
+      console.warn("[Auth] SUPABASE_URL is not configured");
+      return null;
+    }
+
+    let payload: Awaited<ReturnType<typeof jwtVerify>>["payload"];
+
+    if (alg.startsWith("HS")) {
+      if (!ENV.supabaseJwtSecret) {
+        console.warn("[Auth] SUPABASE_JWT_SECRET is not configured");
+        return null;
+      }
+      const secretKey = new TextEncoder().encode(ENV.supabaseJwtSecret);
+      ({ payload } = await jwtVerify(token, secretKey));
+    } else {
+      const apiKey = ENV.supabaseAnonKey || ENV.supabaseServiceRoleKey;
+      if (!apiKey) {
+        console.warn("[Auth] SUPABASE_ANON_KEY is not configured");
+        return null;
+      }
+      const jwksUrls = [
+        new URL(`${ENV.supabaseUrl}/auth/v1/keys`),
+        new URL(`${ENV.supabaseUrl}/auth/v1/.well-known/jwks.json`),
+        new URL(`${ENV.supabaseUrl}/.well-known/jwks.json`),
+      ];
+
+      let lastError: unknown = null;
+      for (const jwksUrl of jwksUrls) {
+        try {
+          const jwks = createRemoteJWKSet(jwksUrl, {
+            headers: {
+              apikey: apiKey,
+            },
+          });
+          ({ payload } = await jwtVerify(token, jwks, {
+            issuer: `${ENV.supabaseUrl}/auth/v1`,
+            audience: "authenticated",
+          }));
+          lastError = null;
+          break;
+        } catch (error) {
+          lastError = error;
+        }
+      }
+
+      if (lastError) {
+        throw lastError;
+      }
+    }
 
     const openId = getString(payload.sub);
     if (!openId) return null;

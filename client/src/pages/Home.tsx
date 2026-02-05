@@ -5,14 +5,16 @@ import Footer from "@/components/Footer";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ChevronLeft, ChevronRight, Star, ArrowRight, Leaf, Award, Truck } from "lucide-react";
+import { supabase } from "@/lib/supabase";
 
-// Hero slides data
-const heroSlides = [
+// Hero slides data (fallback)
+const fallbackHeroSlides = [
   {
     id: 1,
     title: "A natureza em sua forma mais elegante",
     subtitle: "Castanhas premium selecionadas com curadoria artesanal",
     image: "/images/brazil-nuts-1.jpg",
+    imageMobile: "/images/brazil-nuts-1.jpg",
     cta: "Explorar Coleção",
     link: "/shop",
   },
@@ -21,6 +23,7 @@ const heroSlides = [
     title: "Mix Gourmet Exclusivo",
     subtitle: "Combinações únicas para paladares refinados",
     image: "/images/mixed-nuts-1.jpg",
+    imageMobile: "/images/mixed-nuts-1.jpg",
     cta: "Descobrir",
     link: "/shop?collection=mix-gourmet",
   },
@@ -29,13 +32,14 @@ const heroSlides = [
     title: "Edições Limitadas",
     subtitle: "Raridades da natureza em sua mesa",
     image: "/images/nuts-tray.jpg",
+    imageMobile: "/images/nuts-tray.jpg",
     cta: "Ver Edições",
     link: "/shop?collection=edicoes-limitadas",
   },
 ];
 
-// Collections data
-const collections = [
+// Collections data (fallback)
+const fallbackCollections = [
   {
     id: 1,
     name: "Castanhas Selecionadas",
@@ -59,8 +63,8 @@ const collections = [
   },
 ];
 
-// Testimonials data
-const testimonials = [
+// Testimonials data (fallback)
+const fallbackTestimonials = [
   {
     id: 1,
     name: "Maria Clara",
@@ -106,6 +110,9 @@ const features = [
 export default function Home() {
   const [currentSlide, setCurrentSlide] = useState(0);
   const [isVisible, setIsVisible] = useState<{ [key: string]: boolean }>({});
+  const [heroSlides, setHeroSlides] = useState(fallbackHeroSlides);
+  const [collections, setCollections] = useState(fallbackCollections);
+  const [testimonials, setTestimonials] = useState(fallbackTestimonials);
 
   // Auto-advance hero slider
   useEffect(() => {
@@ -113,7 +120,7 @@ export default function Home() {
       setCurrentSlide((prev) => (prev + 1) % heroSlides.length);
     }, 6000);
     return () => clearInterval(timer);
-  }, []);
+  }, [heroSlides.length]);
 
   // Intersection Observer for animations
   useEffect(() => {
@@ -135,6 +142,73 @@ export default function Home() {
     return () => observer.disconnect();
   }, []);
 
+  useEffect(() => {
+    const loadPublicContent = async () => {
+      const { data: bannerRows } = await supabase
+        .from("banners")
+        .select("id,title,subtitle,imageUrl,mobileImageUrl,buttonText,linkUrl")
+        .eq("isActive", true)
+        .eq("position", "hero")
+        .order("displayOrder", { ascending: true })
+        .limit(5);
+
+      if (bannerRows && bannerRows.length > 0) {
+        setHeroSlides(
+          bannerRows.map((row) => ({
+            id: row.id,
+            title: row.title || "A natureza em sua forma mais elegante",
+            subtitle: row.subtitle || "Castanhas premium selecionadas com curadoria artesanal",
+            image: row.imageUrl,
+            imageMobile: row.mobileImageUrl || row.imageUrl,
+            cta: row.buttonText || "Explorar Colecao",
+            link: row.linkUrl || "/shop",
+          }))
+        );
+        setCurrentSlide(0);
+      }
+
+      const { data: categoryRows } = await supabase
+        .from("categories")
+        .select("id,name,slug,description,imageUrl,displayOrder")
+        .eq("isActive", true)
+        .order("displayOrder", { ascending: true })
+        .limit(6);
+
+      if (categoryRows && categoryRows.length > 0) {
+        setCollections(
+          categoryRows.map((row) => ({
+            id: row.id,
+            name: row.name,
+            description: row.description ?? "Curadoria Nutallis",
+            image: row.imageUrl || "/images/brazil-nuts-2.jpg",
+            link: `/shop?category=${row.slug}`,
+          }))
+        );
+      }
+
+      const { data: testimonialRows } = await supabase
+        .from("testimonials")
+        .select("id,customerName,customerLocation,content,rating")
+        .eq("isActive", true)
+        .order("displayOrder", { ascending: true })
+        .limit(3);
+
+      if (testimonialRows && testimonialRows.length > 0) {
+        setTestimonials(
+          testimonialRows.map((row) => ({
+            id: row.id,
+            name: row.customerName,
+            location: row.customerLocation ?? "Brasil",
+            content: row.content,
+            rating: row.rating ?? 5,
+          }))
+        );
+      }
+    };
+
+    void loadPublicContent();
+  }, []);
+
   const nextSlide = () => {
     setCurrentSlide((prev) => (prev + 1) % heroSlides.length);
   };
@@ -148,7 +222,8 @@ export default function Home() {
       <Header transparent />
 
       {/* Hero Section */}
-      <section className="relative h-screen overflow-hidden">
+      <section className="relative h-[92vh] sm:h-screen overflow-hidden">
+        <div className="absolute inset-0 hero-atmosphere" />
         {heroSlides.map((slide, index) => (
           <div
             key={slide.id}
@@ -157,19 +232,35 @@ export default function Home() {
             }`}
           >
             {/* Background Image */}
-            <div
-              className="absolute inset-0 bg-cover bg-center"
-              style={{ backgroundImage: `url(${slide.image})` }}
-            >
-              <div className="absolute inset-0 bg-cacau/70" />
+            <div className="absolute inset-0 bg-cover bg-center">
+              <div
+                className="absolute inset-0 bg-cover bg-center sm:hidden"
+                style={{ backgroundImage: `url(${slide.imageMobile || slide.image})` }}
+              />
+              <div
+                className="absolute inset-0 bg-cover bg-center hidden sm:block"
+                style={{ backgroundImage: `url(${slide.image})` }}
+              />
+              <div className="absolute inset-0 bg-gradient-to-b from-cacau/70 via-cacau/60 to-cacau/80" />
+              <div className="absolute inset-0 hero-vignette" />
             </div>
 
             {/* Content */}
             <div className="relative h-full flex items-center">
               <div className="container">
                 <div className="max-w-2xl">
+                  <div
+                    className={`inline-flex items-center gap-2 px-4 py-2 rounded-full border border-perla/30 text-perla/90 text-xs tracking-[0.2em] uppercase mb-6 transition-all duration-700 ${
+                      index === currentSlide
+                        ? "translate-y-0 opacity-100"
+                        : "translate-y-6 opacity-0"
+                    }`}
+                    style={{ transitionDelay: "100ms" }}
+                  >
+                    Quiet Luxury Botanico
+                  </div>
                   <h1
-                    className={`text-4xl md:text-6xl font-serif font-bold text-perla mb-6 transition-all duration-700 ${
+                    className={`text-3xl sm:text-4xl md:text-6xl font-serif font-bold text-perla mb-5 sm:mb-6 transition-all duration-700 ${
                       index === currentSlide
                         ? "translate-y-0 opacity-100"
                         : "translate-y-10 opacity-0"
@@ -179,7 +270,7 @@ export default function Home() {
                     {slide.title}
                   </h1>
                   <p
-                    className={`text-lg md:text-xl text-perla/90 mb-8 transition-all duration-700 ${
+                    className={`text-base sm:text-lg md:text-xl text-perla/90 mb-7 sm:mb-8 transition-all duration-700 ${
                       index === currentSlide
                         ? "translate-y-0 opacity-100"
                         : "translate-y-10 opacity-0"
@@ -188,19 +279,41 @@ export default function Home() {
                   >
                     {slide.subtitle}
                   </p>
-                  <Link href={slide.link}>
-                    <Button
-                      className={`btn-gold px-8 py-6 text-lg transition-all duration-700 ${
-                        index === currentSlide
-                          ? "translate-y-0 opacity-100"
-                          : "translate-y-10 opacity-0"
-                      }`}
-                      style={{ transitionDelay: "600ms" }}
-                    >
-                      {slide.cta}
-                      <ArrowRight className="ml-2 h-5 w-5" />
-                    </Button>
-                  </Link>
+                  <div
+                    className={`flex flex-col sm:flex-row sm:items-center gap-4 transition-all duration-700 ${
+                      index === currentSlide
+                        ? "translate-y-0 opacity-100"
+                        : "translate-y-10 opacity-0"
+                    }`}
+                    style={{ transitionDelay: "600ms" }}
+                  >
+                    <Link href={slide.link}>
+                      <Button className="btn-gold px-7 py-5 text-base sm:text-lg">
+                        {slide.cta}
+                        <ArrowRight className="ml-2 h-5 w-5" />
+                      </Button>
+                    </Link>
+                    <Link href="/sobre">
+                      <Button
+                        variant="outline"
+                        className="border-perla/50 text-perla hover:bg-perla/10"
+                      >
+                        Nossa Origem
+                      </Button>
+                    </Link>
+                  </div>
+                  <div
+                    className={`mt-6 sm:mt-8 flex flex-wrap gap-4 sm:gap-6 text-perla/70 text-xs sm:text-sm transition-all duration-700 ${
+                      index === currentSlide
+                        ? "translate-y-0 opacity-100"
+                        : "translate-y-10 opacity-0"
+                    }`}
+                    style={{ transitionDelay: "700ms" }}
+                  >
+                    <span>Curadoria artesanal</span>
+                    <span>Selecao botanica</span>
+                    <span>Entrega refrigerada</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -209,13 +322,13 @@ export default function Home() {
 
         {/* Slider Controls */}
         <div className="absolute bottom-8 left-0 right-0">
-          <div className="container flex items-center justify-between">
+          <div className="container flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex gap-2">
               {heroSlides.map((_, index) => (
                 <button
                   key={index}
                   onClick={() => setCurrentSlide(index)}
-                  className={`w-12 h-1 rounded-full transition-all ${
+                  className={`w-10 sm:w-12 h-1 rounded-full transition-all ${
                     index === currentSlide ? "bg-ouro" : "bg-perla/40"
                   }`}
                 />
@@ -244,13 +357,13 @@ export default function Home() {
       </section>
 
       {/* Features Bar */}
-      <section className="bg-cacau-light py-6">
+      <section className="bg-cacau-light py-8">
         <div className="container">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {features.map((feature, index) => (
               <div
                 key={index}
-                className="flex items-center justify-center gap-4 text-perla"
+                className="flex items-center justify-center gap-4 text-perla/90"
               >
                 <feature.icon className="h-8 w-8 text-ouro" />
                 <div>
@@ -286,7 +399,7 @@ export default function Home() {
             <div className="section-divider mx-auto" />
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {collections.map((collection, index) => (
               <Link key={collection.id} href={collection.link}>
                 <Card
@@ -297,7 +410,22 @@ export default function Home() {
                   }`}
                   style={{ transitionDelay: `${index * 150}ms` }}
                 >
-                  <div className="relative aspect-[4/5] image-zoom-container">
+                  <div
+                    className={`relative image-zoom-container ${
+                      index % 5 === 0
+                        ? "aspect-[5/4]"
+                        : index % 5 === 3
+                        ? "aspect-[3/4]"
+                        : "aspect-[4/5]"
+                    }`}
+                  >
+                    {index === 0 && (
+                      <div className="absolute top-4 left-4 z-10">
+                        <span className="inline-flex items-center gap-2 bg-perla/90 text-cacau text-xs tracking-[0.2em] uppercase px-3 py-1 rounded-full">
+                          Edicao limitada
+                        </span>
+                      </div>
+                    )}
                     <img
                       src={collection.image}
                       alt={collection.name}
@@ -305,7 +433,7 @@ export default function Home() {
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-cacau/80 via-cacau/20 to-transparent" />
                     <div className="absolute bottom-0 left-0 right-0 p-6 text-perla">
-                      <h3 className="text-xl font-serif font-bold mb-2">
+                      <h3 className={`font-serif font-bold mb-2 ${index === 0 ? "text-2xl" : "text-xl"}`}>
                         {collection.name}
                       </h3>
                       <p className="text-perla/80 text-sm mb-4">
@@ -457,19 +585,29 @@ export default function Home() {
       {/* CTA Section */}
       <section className="py-20 bg-folha">
         <div className="container text-center">
-          <h2 className="text-3xl md:text-4xl font-serif font-bold text-perla mb-4">
-            Pronto para Experimentar?
+          <span className="text-perla/70 text-xs tracking-[0.3em] uppercase">
+            Experiencia Nutallis
+          </span>
+          <h2 className="text-3xl md:text-4xl font-serif font-bold text-perla mb-4 mt-4">
+            Sofisticacao que se sente no paladar
           </h2>
           <p className="text-perla/80 mb-8 max-w-2xl mx-auto">
-            Descubra o sabor autêntico das melhores castanhas do Brasil. 
-            Frete grátis em pedidos acima de R$ 150.
+            Curadoria botanica, frescor absoluto e um ritual de bem-estar em cada detalhe.
+            Frete gratis acima de R$ 150.
           </p>
-          <Link href="/shop">
-            <Button className="btn-gold px-8 py-6 text-lg">
-              Comprar Agora
-              <ArrowRight className="ml-2 h-5 w-5" />
-            </Button>
-          </Link>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+            <Link href="/shop">
+              <Button className="btn-gold px-8 py-6 text-lg">
+                Ver Colecoes
+                <ArrowRight className="ml-2 h-5 w-5" />
+              </Button>
+            </Link>
+            <Link href="/contato">
+              <Button variant="outline" className="border-perla/60 text-perla hover:bg-perla/10">
+                Atendimento VIP
+              </Button>
+            </Link>
+          </div>
         </div>
       </section>
 

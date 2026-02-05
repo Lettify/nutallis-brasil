@@ -1,5 +1,7 @@
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
+import { cartRouter } from "./routers/cart";
+import { couponsRouter } from "./routers/coupons";
 import { paymentMethodsRouter } from "./routers/paymentMethods";
 
 export const appRouter = router({
@@ -11,6 +13,8 @@ export const appRouter = router({
   }),
 
   paymentMethods: paymentMethodsRouter,
+  coupons: couponsRouter,
+  cart: cartRouter,
 
   // TODO: add feature routers here, e.g.
   // todo: router({

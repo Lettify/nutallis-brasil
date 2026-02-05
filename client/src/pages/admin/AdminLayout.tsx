@@ -11,6 +11,7 @@ import {
   DollarSign,
   FileText,
   Settings,
+  Tag,
   Menu,
   LogOut,
   User,
@@ -23,6 +24,7 @@ const menuItems = [
   { icon: ShoppingCart, label: "Pedidos", href: "/admin/pedidos" },
   { icon: DollarSign, label: "Financeiro", href: "/admin/financeiro" },
   { icon: FileText, label: "Conteúdo", href: "/admin/conteudo" },
+  { icon: Tag, label: "Cupons", href: "/admin/cupons" },
   { icon: Settings, label: "Configurações", href: "/admin/configuracoes" },
 ];
 

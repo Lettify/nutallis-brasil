@@ -29,6 +29,7 @@ import AdminOrders from "./pages/admin/Orders";
 import AdminFinancial from "./pages/admin/Financial";
 import AdminContent from "./pages/admin/Content";
 import AdminSettings from "./pages/admin/Settings";
+import AdminCoupons from "./pages/admin/Coupons";
 
 function Router() {
   return (
@@ -55,6 +56,7 @@ function Router() {
       <Route path="/admin/pedidos" component={() => <AdminLayout><AdminOrders /></AdminLayout>} />
       <Route path="/admin/financeiro" component={() => <AdminLayout><AdminFinancial /></AdminLayout>} />
       <Route path="/admin/conteudo" component={() => <AdminLayout><AdminContent /></AdminLayout>} />
+      <Route path="/admin/cupons" component={() => <AdminLayout><AdminCoupons /></AdminLayout>} />
       <Route path="/admin/configuracoes" component={() => <AdminLayout><AdminSettings /></AdminLayout>} />
       
       {/* 404 */}

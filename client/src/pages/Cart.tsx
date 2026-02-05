@@ -1,76 +1,98 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "wouter";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { startLogin } from "@/const";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { ChevronRight, Minus, Plus, Trash2, ShoppingBag, Tag, ArrowRight, Truck } from "lucide-react";
 import { toast } from "sonner";
-
-// Mock cart items
-const initialCartItems = [
-  {
-    id: 1,
-    productId: 1,
-    name: "Castanha do Pará Premium",
-    slug: "castanha-do-para-premium",
-    price: 89.90,
-    image: "/images/brazil-nuts-1.jpg",
-    quantity: 2,
-    stock: 50,
-  },
-  {
-    id: 2,
-    productId: 2,
-    name: "Mix Gourmet Tropical",
-    slug: "mix-gourmet-tropical",
-    price: 79.90,
-    image: "/images/mixed-nuts-1.jpg",
-    quantity: 1,
-    stock: 35,
-  },
-];
+import { trpc } from "@/lib/trpc";
 
 export default function Cart() {
-  const [cartItems, setCartItems] = useState(initialCartItems);
+  const { loading, isAuthenticated } = useAuth();
+  const cartQuery = trpc.cart.list.useQuery(undefined, {
+    enabled: isAuthenticated,
+    retry: false,
+    refetchOnWindowFocus: true,
+    refetchInterval: 60000,
+  });
+  const updateMutation = trpc.cart.updateQuantity.useMutation({
+    onSuccess: () => cartQuery.refetch(),
+  });
+  const removeMutation = trpc.cart.remove.useMutation({
+    onSuccess: () => cartQuery.refetch(),
+  });
+  const clearMutation = trpc.cart.clear.useMutation({
+    onSuccess: () => cartQuery.refetch(),
+  });
   const [couponCode, setCouponCode] = useState("");
-  const [appliedCoupon, setAppliedCoupon] = useState<{ code: string; discount: number } | null>(null);
+  const [appliedCoupon, setAppliedCoupon] = useState<{
+    code: string;
+    discountAmount: number;
+    discountType: "percentage" | "fixed";
+    discountValue: number;
+  } | null>(null);
   const [zipCode, setZipCode] = useState("");
   const [shippingCost, setShippingCost] = useState<number | null>(null);
 
-  const subtotal = cartItems.reduce((acc, item) => acc + item.price * item.quantity, 0);
-  const discount = appliedCoupon ? subtotal * (appliedCoupon.discount / 100) : 0;
+  const couponMutation = trpc.coupons.validate.useMutation();
+
+  const cartItems = cartQuery.data ?? [];
+  const subtotal = useMemo(
+    () => cartItems.reduce((acc, item) => acc + item.price * item.quantity, 0),
+    [cartItems]
+  );
+  const discount = appliedCoupon ? appliedCoupon.discountAmount : 0;
   const shipping = shippingCost || 0;
   const total = subtotal - discount + shipping;
 
   const updateQuantity = (itemId: number, newQuantity: number) => {
-    setCartItems((prev) =>
-      prev.map((item) =>
-        item.id === itemId
-          ? { ...item, quantity: Math.max(1, Math.min(item.stock, newQuantity)) }
-          : item
-      )
-    );
+    updateMutation.mutate({ id: itemId, quantity: newQuantity });
   };
 
   const removeItem = (itemId: number) => {
-    setCartItems((prev) => prev.filter((item) => item.id !== itemId));
+    removeMutation.mutate({ id: itemId });
     toast.success("Item removido do carrinho");
   };
 
-  const applyCoupon = () => {
-    if (couponCode.toUpperCase() === "NUTALLIS10") {
-      setAppliedCoupon({ code: "NUTALLIS10", discount: 10 });
-      toast.success("Cupom aplicado! 10% de desconto");
-    } else if (couponCode.toUpperCase() === "PRIMEIRA20") {
-      setAppliedCoupon({ code: "PRIMEIRA20", discount: 20 });
-      toast.success("Cupom aplicado! 20% de desconto");
-    } else {
-      toast.error("Cupom inválido ou expirado");
+  const clearCart = () => {
+    clearMutation.mutate();
+    toast.success("Carrinho limpo");
+  };
+
+  const applyCoupon = async () => {
+    const code = couponCode.trim();
+    if (!code) {
+      toast.error("Digite um cupom");
+      return;
     }
-    setCouponCode("");
+
+    try {
+      const result = await couponMutation.mutateAsync({
+        code,
+        subtotal,
+      });
+
+      setAppliedCoupon({
+        code: result.code,
+        discountAmount: result.discountAmount,
+        discountType: result.discountType,
+        discountValue: result.discountValue,
+      });
+
+      const label = result.discountType === "percentage"
+        ? `${result.discountValue}% de desconto`
+        : `R$ ${result.discountValue.toFixed(2).replace(".", ",")} de desconto`;
+      toast.success(`Cupom aplicado! ${label}`);
+      setCouponCode("");
+    } catch (error: any) {
+      const message = error?.message || "Cupom invalido ou expirado";
+      toast.error(message);
+    }
   };
 
   const removeCoupon = () => {
@@ -92,6 +114,45 @@ export default function Cart() {
       toast.success("Frete calculado com sucesso");
     }
   };
+
+  if (loading || cartQuery.isLoading) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header />
+        <div className="container pt-32 pb-20">
+          <div className="animate-pulse space-y-4">
+            <div className="h-8 bg-muted rounded w-1/4" />
+            <div className="h-4 bg-muted rounded w-1/2" />
+          </div>
+        </div>
+        <Footer />
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header />
+        <div className="container pt-32 pb-20">
+          <div className="max-w-md mx-auto text-center">
+            <ShoppingBag className="h-16 w-16 mx-auto text-muted-foreground mb-6" />
+            <h1 className="text-2xl font-serif font-bold text-cacau mb-4">
+              Faca login para continuar
+            </h1>
+            <p className="text-muted-foreground mb-8">
+              Acesse sua conta para ver seu carrinho.
+            </p>
+            <Button className="btn-gold" onClick={() => void startLogin("/carrinho")}>
+              Entrar na Conta
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+        <Footer />
+      </div>
+    );
+  }
 
   if (cartItems.length === 0) {
     return (
@@ -227,12 +288,22 @@ export default function Cart() {
             ))}
 
             {/* Continue Shopping */}
-            <Link href="/shop">
-              <Button variant="outline" className="w-full">
-                <ShoppingBag className="h-4 w-4 mr-2" />
-                Continuar Comprando
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <Link href="/shop">
+                <Button variant="outline" className="w-full">
+                  <ShoppingBag className="h-4 w-4 mr-2" />
+                  Continuar Comprando
+                </Button>
+              </Link>
+              <Button
+                variant="outline"
+                className="w-full text-destructive hover:text-destructive"
+                onClick={clearCart}
+                disabled={clearMutation.isPending}
+              >
+                Limpar Carrinho
               </Button>
-            </Link>
+            </div>
           </div>
 
           {/* Order Summary */}
@@ -248,7 +319,11 @@ export default function Cart() {
                     <div className="flex items-center gap-2">
                       <Tag className="h-4 w-4 text-folha" />
                       <span className="font-medium text-folha">
-                        {appliedCoupon.code} (-{appliedCoupon.discount}%)
+                        {appliedCoupon.code} (
+                        {appliedCoupon.discountType === "percentage"
+                          ? `-${appliedCoupon.discountValue}%`
+                          : `-R$ ${appliedCoupon.discountValue.toFixed(2).replace(".", ",")}`}
+                        )
                       </span>
                     </div>
                     <Button
@@ -267,8 +342,8 @@ export default function Cart() {
                       value={couponCode}
                       onChange={(e) => setCouponCode(e.target.value)}
                     />
-                    <Button variant="outline" onClick={applyCoupon}>
-                      Aplicar
+                    <Button variant="outline" onClick={applyCoupon} disabled={couponMutation.isPending}>
+                      {couponMutation.isPending ? "Aplicando..." : "Aplicar"}
                     </Button>
                   </div>
                 )}

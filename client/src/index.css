@@ -260,6 +260,20 @@
   background: linear-gradient(180deg, var(--perla) 0%, var(--perla-dark) 100%);
 }
 
+.hero-atmosphere {
+  background:
+    radial-gradient(600px 400px at 10% 10%, rgba(212, 175, 55, 0.18), transparent 60%),
+    radial-gradient(700px 500px at 90% 20%, rgba(58, 90, 64, 0.25), transparent 65%),
+    radial-gradient(600px 500px at 20% 80%, rgba(45, 30, 23, 0.45), transparent 70%);
+  mix-blend-mode: screen;
+  pointer-events: none;
+}
+
+.hero-vignette {
+  background: radial-gradient(circle at center, transparent 30%, rgba(0, 0, 0, 0.35) 100%);
+  pointer-events: none;
+}
+
 /* Smooth scrolling */
 html {
   scroll-behavior: smooth;

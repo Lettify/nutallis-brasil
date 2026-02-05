@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useParams } from "wouter";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
@@ -8,6 +8,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Heart, ShoppingBag, Minus, Plus, ChevronRight, Star, Truck, Shield, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
+import { supabase } from "@/lib/supabase";
+import { trpc } from "@/lib/trpc";
+import { startLogin } from "@/const";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { TRPCClientError } from "@trpc/client";
 
 // Mock product data
 const mockProduct = {
@@ -23,11 +28,8 @@ const mockProduct = {
   ],
   category: "Castanhas",
   shortDescription: "Castanhas selecionadas da Amazônia brasileira, colhidas de forma sustentável.",
-  description: `
-    <p>As Castanhas do Pará Premium da Nutallis são cuidadosamente selecionadas das florestas da Amazônia brasileira. Cada castanha passa por um rigoroso processo de seleção para garantir apenas o melhor em sua mesa.</p>
-    <p>Ricas em selênio, um poderoso antioxidante, nossas castanhas são perfeitas para quem busca uma alimentação saudável sem abrir mão do sabor. O selênio contribui para a saúde da tireoide, fortalece o sistema imunológico e protege as células contra danos oxidativos.</p>
-    <p>Nossa colheita é realizada de forma sustentável, respeitando o ciclo natural da floresta e apoiando as comunidades locais. Ao escolher Nutallis, você está contribuindo para a preservação da Amazônia.</p>
-  `,
+  description:
+    "As Castanhas do Para Premium da Nutallis sao cuidadosamente selecionadas das florestas da Amazonia brasileira. Cada castanha passa por um rigoroso processo de selecao para garantir apenas o melhor em sua mesa.\n\nRicas em selenio, um poderoso antioxidante, nossas castanhas sao perfeitas para quem busca uma alimentacao saudavel sem abrir mao do sabor. O selenio contribui para a saude da tireoide, fortalece o sistema imunologico e protege as celulas contra danos oxidativos.\n\nNossa colheita e realizada de forma sustentavel, respeitando o ciclo natural da floresta e apoiando as comunidades locais. Ao escolher Nutallis, voce esta contribuindo para a preservacao da Amazonia.",
   nutritionalInfo: {
     servingSize: "30g (aproximadamente 3 unidades)",
     calories: 186,
@@ -88,8 +90,180 @@ export default function ProductDetail() {
   const [isZoomed, setIsZoomed] = useState(false);
   const [zoomPosition, setZoomPosition] = useState({ x: 0, y: 0 });
 
-  // In real app, fetch product by slug
-  const product = mockProduct;
+  const [product, setProduct] = useState(mockProduct);
+  const [productImages, setProductImages] = useState(mockProduct.images);
+  const [categoryName, setCategoryName] = useState(mockProduct.category);
+  const [related, setRelated] = useState(relatedProducts);
+  const [isLoading, setIsLoading] = useState(true);
+  const [hasLoadError, setHasLoadError] = useState(false);
+  const [notFound, setNotFound] = useState(false);
+
+  const { isAuthenticated, loading: authLoading } = useAuth();
+  const addToCartMutation = trpc.cart.add.useMutation();
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const toNumber = (value: unknown, fallback = 0) => {
+      if (value === null || value === undefined) return fallback;
+      const numeric = typeof value === "number" ? value : Number(value);
+      return Number.isFinite(numeric) ? numeric : fallback;
+    };
+
+    const normalizeHarmonization = (value: unknown) => {
+      if (!value || typeof value !== "string") return [] as string[];
+      const byLine = value
+        .split("\n")
+        .map((item) => item.trim())
+        .filter(Boolean);
+      if (byLine.length > 1) return byLine;
+      return value
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
+    };
+
+    const loadProduct = async () => {
+      if (!slug) return;
+
+      setIsLoading(true);
+      setHasLoadError(false);
+      setNotFound(false);
+      setProduct(mockProduct);
+      setProductImages(mockProduct.images);
+      setCategoryName(mockProduct.category);
+
+      const { data: productRow, error } = await supabase
+        .from("products")
+        .select(
+          "id,name,slug,price,compareAtPrice,description,shortDescription,stock,sku,weight,origin,nutritionalInfo,harmonization,categoryId,isActive"
+        )
+        .eq("slug", slug)
+        .eq("isActive", true)
+        .maybeSingle();
+
+      if (!isMounted) return;
+
+      if (error) {
+        setHasLoadError(true);
+        setIsLoading(false);
+        return;
+      }
+
+      if (!productRow) {
+        setNotFound(true);
+        setIsLoading(false);
+        return;
+      }
+
+      const [{ data: categoryRow }, { data: imageRows }] = await Promise.all([
+        supabase
+          .from("categories")
+          .select("name,slug")
+          .eq("id", productRow.categoryId)
+          .maybeSingle(),
+        supabase
+          .from("productImages")
+          .select("url,displayOrder")
+          .eq("productId", productRow.id)
+          .order("displayOrder", { ascending: true }),
+      ]);
+
+      if (!isMounted) return;
+
+      const imageUrls = imageRows?.map((row) => row.url) ?? [];
+      const normalizedWeight = productRow.weight
+        ? `${toNumber(productRow.weight, 0)}g`
+        : "";
+      const normalizedNutrition =
+        productRow.nutritionalInfo &&
+        typeof productRow.nutritionalInfo === "object" &&
+        !Array.isArray(productRow.nutritionalInfo)
+          ? productRow.nutritionalInfo
+          : undefined;
+      const harmonization = normalizeHarmonization(productRow.harmonization);
+
+      setProduct({
+        id: productRow.id,
+        name: productRow.name,
+        slug: productRow.slug,
+        price: toNumber(productRow.price, 0),
+        compareAtPrice: productRow.compareAtPrice
+          ? toNumber(productRow.compareAtPrice, 0)
+          : undefined,
+        images: imageUrls.length > 0 ? imageUrls : mockProduct.images,
+        category: categoryRow?.name ?? mockProduct.category,
+        shortDescription:
+          productRow.shortDescription ?? "Curadoria Nutallis",
+        description:
+          productRow.description ??
+          "Descricao detalhada em breve.\nCuradoria premium, textura impecavel e frescor absoluto.",
+        nutritionalInfo: normalizedNutrition ?? mockProduct.nutritionalInfo,
+        harmonization: harmonization.length > 0 ? harmonization : mockProduct.harmonization,
+        origin: productRow.origin ?? mockProduct.origin,
+        stock: productRow.stock ?? 0,
+        sku: productRow.sku ?? mockProduct.sku,
+        weight: normalizedWeight || mockProduct.weight,
+      });
+
+      setProductImages(imageUrls.length > 0 ? imageUrls : mockProduct.images);
+      setSelectedImage(0);
+      setCategoryName(categoryRow?.name ?? mockProduct.category);
+
+      const relatedQuery = supabase
+        .from("products")
+        .select("id,name,slug,price,categoryId")
+        .eq("isActive", true)
+        .neq("id", productRow.id)
+        .order("createdAt", { ascending: false })
+        .limit(3);
+
+      const { data: relatedRows } = productRow.categoryId
+        ? await relatedQuery.eq("categoryId", productRow.categoryId)
+        : await relatedQuery;
+
+      const relatedIds = relatedRows?.map((row) => row.id) ?? [];
+      const { data: relatedImages } = relatedIds.length
+        ? await supabase
+            .from("productImages")
+            .select("productId,url,displayOrder")
+            .in("productId", relatedIds)
+            .order("displayOrder", { ascending: true })
+        : { data: [] };
+
+      const relatedImageMap = new Map<number, string>();
+      relatedImages?.forEach((row) => {
+        if (!relatedImageMap.has(row.productId)) {
+          relatedImageMap.set(row.productId, row.url);
+        }
+      });
+
+      const relatedFallbackImages = relatedProducts.map((item) => item.image);
+
+      setRelated(
+        relatedRows && relatedRows.length > 0
+          ? relatedRows.map((row, index) => ({
+              id: row.id,
+              name: row.name,
+              slug: row.slug,
+              price: toNumber(row.price, 0),
+              image:
+                relatedImageMap.get(row.id) ||
+                relatedFallbackImages[index % relatedFallbackImages.length] ||
+                "/images/brazil-nuts-1.jpg",
+            }))
+          : relatedProducts
+      );
+
+      setIsLoading(false);
+    };
+
+    void loadProduct();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [slug]);
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -98,8 +272,31 @@ export default function ProductDetail() {
     setZoomPosition({ x, y });
   };
 
-  const addToCart = () => {
-    toast.success(`${quantity}x ${product.name} adicionado ao carrinho!`);
+  const addToCart = async () => {
+    if (!product?.id) return;
+
+    if (!isAuthenticated && !authLoading) {
+      toast.error("Faca login para adicionar ao carrinho");
+      await startLogin(`/produto/${product.slug}`);
+      return;
+    }
+
+    try {
+      await addToCartMutation.mutateAsync({
+        productId: product.id,
+        quantity,
+      });
+      toast.success(`${quantity}x ${product.name} adicionado ao carrinho!`);
+    } catch (error: unknown) {
+      if (
+        error instanceof TRPCClientError &&
+        error.data?.code === "UNAUTHORIZED"
+      ) {
+        await startLogin(`/produto/${product.slug}`);
+        return;
+      }
+      toast.error("Nao foi possivel adicionar ao carrinho");
+    }
   };
 
   const addToWishlist = () => {
@@ -128,6 +325,25 @@ export default function ProductDetail() {
       </div>
 
       <div className="container py-8">
+        {isLoading && (
+          <div className="mb-8 rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+            Carregando produto...
+          </div>
+        )}
+        {notFound ? (
+          <div className="py-20 text-center">
+            <h1 className="text-2xl md:text-3xl font-serif font-bold text-cacau mb-4">
+              Produto nao encontrado
+            </h1>
+            <p className="text-muted-foreground mb-6">
+              Verifique o link ou explore nossa selecao completa.
+            </p>
+            <Link href="/shop">
+              <Button className="btn-gold">Ver produtos</Button>
+            </Link>
+          </div>
+        ) : (
+        <>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
           {/* Product Images */}
           <div className="space-y-4">
@@ -139,7 +355,7 @@ export default function ProductDetail() {
               onMouseMove={handleMouseMove}
             >
               <img
-                src={product.images[selectedImage]}
+                src={productImages[selectedImage]}
                 alt={product.name}
                 className={`w-full h-full object-cover transition-transform duration-300 ${
                   isZoomed ? "scale-150" : ""
@@ -161,7 +377,7 @@ export default function ProductDetail() {
 
             {/* Thumbnails */}
             <div className="flex gap-3">
-              {product.images.map((image, index) => (
+              {productImages.map((image, index) => (
                 <button
                   key={index}
                   onClick={() => setSelectedImage(index)}
@@ -184,7 +400,7 @@ export default function ProductDetail() {
           {/* Product Info */}
           <div>
             <span className="text-ouro text-sm font-medium tracking-wider uppercase">
-              {product.category}
+              {categoryName}
             </span>
             <h1 className="text-3xl md:text-4xl font-serif font-bold text-cacau mt-2">
               {product.name}
@@ -264,6 +480,12 @@ export default function ProductDetail() {
                 : "Produto esgotado"}
             </p>
 
+            {hasLoadError && (
+              <div className="mt-4 rounded-lg border border-ouro/30 bg-ouro/10 px-4 py-3 text-sm text-cacau">
+                Nao foi possivel carregar os dados em tempo real. Exibindo uma versao local.
+              </div>
+            )}
+
             {/* Features */}
             <div className="grid grid-cols-3 gap-4 mt-8 pt-8 border-t border-border">
               <div className="text-center">
@@ -330,10 +552,9 @@ export default function ProductDetail() {
           </TabsList>
 
           <TabsContent value="description" className="mt-8">
-            <div
-              className="prose prose-lg max-w-none text-foreground/80"
-              dangerouslySetInnerHTML={{ __html: product.description }}
-            />
+            <div className="prose prose-lg max-w-none text-foreground/80 whitespace-pre-line">
+              {product.description}
+            </div>
           </TabsContent>
 
           <TabsContent value="nutrition" className="mt-8">
@@ -343,28 +564,34 @@ export default function ProductDetail() {
                   Tabela Nutricional
                 </AccordionTrigger>
                 <AccordionContent>
-                  <div className="space-y-3 py-4">
-                    <p className="text-sm text-muted-foreground mb-4">
-                      Porção: {product.nutritionalInfo.servingSize}
-                    </p>
-                    <div className="grid grid-cols-2 gap-4">
-                      {Object.entries(product.nutritionalInfo)
-                        .filter(([key]) => key !== "servingSize")
-                        .map(([key, value]) => (
-                          <div
-                            key={key}
-                            className="flex justify-between py-2 border-b border-border"
-                          >
-                            <span className="text-muted-foreground capitalize">
-                              {key.replace(/([A-Z])/g, " $1").trim()}
-                            </span>
-                            <span className="font-medium">
-                              {typeof value === "number" ? `${value}g` : value}
-                            </span>
-                          </div>
-                        ))}
+                  {product.nutritionalInfo ? (
+                    <div className="space-y-3 py-4">
+                      <p className="text-sm text-muted-foreground mb-4">
+                        Porcao: {product.nutritionalInfo.servingSize}
+                      </p>
+                      <div className="grid grid-cols-2 gap-4">
+                        {Object.entries(product.nutritionalInfo)
+                          .filter(([key]) => key !== "servingSize")
+                          .map(([key, value]) => (
+                            <div
+                              key={key}
+                              className="flex justify-between py-2 border-b border-border"
+                            >
+                              <span className="text-muted-foreground capitalize">
+                                {key.replace(/([A-Z])/g, " $1").trim()}
+                              </span>
+                              <span className="font-medium">
+                                {typeof value === "number" ? `${value}g` : value}
+                              </span>
+                            </div>
+                          ))}
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="py-4 text-sm text-muted-foreground">
+                      Informacao nutricional em breve.
+                    </div>
+                  )}
                 </AccordionContent>
               </AccordionItem>
             </Accordion>
@@ -396,7 +623,7 @@ export default function ProductDetail() {
             Produtos Relacionados
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {relatedProducts.map((relatedProduct) => (
+            {related.map((relatedProduct) => (
               <Link key={relatedProduct.id} href={`/produto/${relatedProduct.slug}`}>
                 <Card className="group product-card border-0 shadow-md overflow-hidden cursor-pointer">
                   <div className="relative aspect-square image-zoom-container">
@@ -419,6 +646,8 @@ export default function ProductDetail() {
             ))}
           </div>
         </section>
+        </>
+      )}
       </div>
 
       <Footer />
