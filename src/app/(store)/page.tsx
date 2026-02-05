@@ -124,7 +124,7 @@ export default async function StorePage() {
 
       <section
         id="assinatura"
-        className="rounded-[32px] border border-forest/10 bg-white/80 p-10"
+        className="rounded-4xl border border-forest/10 bg-white/80 p-10"
       >
         <div className="grid gap-6 md:grid-cols-[1.2fr_0.8fr]">
           <div className="space-y-3">
