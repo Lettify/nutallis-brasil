@@ -2,9 +2,35 @@ import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { splitCaixinhas } from "@/lib/caixinhas";
 import { applyOrderStockAdjustments } from "@/lib/stock";
+import { createHmac } from "crypto";
+
+const parseSignature = (header: string | null) => {
+  if (!header) return null;
+  const parts = header.split(",").map((part) => part.trim());
+  const ts = parts.find((part) => part.startsWith("ts="))?.slice(3);
+  const v1 = parts.find((part) => part.startsWith("v1="))?.slice(3);
+  if (!ts || !v1) return null;
+  return { ts, v1 };
+};
 
 export const POST = async (request: Request) => {
-  const payload = (await request.json()) as {
+  const rawBody = await request.text();
+  const signature = parseSignature(request.headers.get("x-signature"));
+  const secret = process.env.MERCADOPAGO_WEBHOOK_SECRET;
+
+  if (secret) {
+    if (!signature) {
+      return NextResponse.json({ error: "missing_signature" }, { status: 401 });
+    }
+    const digest = createHmac("sha256", secret)
+      .update(`${signature.ts}.${rawBody}`)
+      .digest("hex");
+    if (digest !== signature.v1) {
+      return NextResponse.json({ error: "invalid_signature" }, { status: 401 });
+    }
+  }
+
+  const payload = JSON.parse(rawBody) as {
     data?: { id?: string };
     order_id?: string;
     net_value_cents?: number;
