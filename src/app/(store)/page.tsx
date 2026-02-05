@@ -21,11 +21,18 @@ export default async function StorePage() {
     .eq("active", true)
     .order("name", { ascending: true });
 
-  const mappedProducts: Product[] =
-    products?.map((product) => ({
+  type ProductRow = Product & {
+    categories?: { name: string } | { name: string }[] | null;
+  };
+
+  const mappedProducts: Product[] = ((products ?? []) as ProductRow[]).map(
+    (product) => ({
       ...product,
-      category_name: Array.isArray(product.categories) ? product.categories[0]?.name ?? null : product.categories?.name ?? null,
-    })) ?? [];
+      category_name: Array.isArray(product.categories)
+        ? product.categories[0]?.name ?? null
+        : product.categories?.name ?? null,
+    })
+  );
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-16 px-6 py-12">
